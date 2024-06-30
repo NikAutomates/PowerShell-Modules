@@ -1,0 +1,30 @@
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - modules/graph/* # Change path
+
+pool:
+  vmImage: 'windows-2019'  # Change if needed
+
+steps:
+- task: PowerShell@2
+  inputs:
+    targetType: 'filepath' 
+    filePath: 'PS1YamlTriggers/YAML-Graph-PSGallery.ps1'
+    pwsh: true
+  displayName: ''
+
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    pwsh: true
+    script: |
+      Import-Module PowerShellGet -Force # Import the PowerShellGet module
+      
+      $modulePath = "modules/graph"
+
+      Publish-Module -Path $modulePath -NuGetApiKey "$(PowerShellGalleryApiKey)" -Force -Verbose ; Start-Sleep -Seconds 10
+  displayName: 'Publish Module to PowerShell Gallery'
