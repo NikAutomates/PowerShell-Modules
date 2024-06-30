@@ -4,7 +4,7 @@ trigger:
     - main
   paths:
     include:
-    - modules/AzureVirtualMachines/* #Change path
+    - modules/AzureVirtualMachines/* #Changepath
 
 pool:
   vmImage: 'windows-2019'  #Change if needed
