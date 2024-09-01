@@ -12,14 +12,11 @@
 https://www.powershellgallery.com/packages/Graph/
 
 .EXAMPLE
-    Get-BearerToken -ClientID "8c193358-c9c9-4255e-acd8c28f4a" -TenantName "Domain.com" -LocalTest
+    Get-BearerToken -ClientID "8c193358-c9c9-4255e-acd8c28f4a" -TenantName "Domain.com" -Secret 'Mysecret'
     This example will allow you to retrieve a bearer token locally, by providing the Client App Secret from Azure AD
 
     Get-BearerToken -ClientID "8c193358-c9c9-4255e-acd8c28f4a" -TenantName "Domain.com" -RunbookUserName "ClientSecret-Graph"
     This example will retrieve a bearer token from the credential in the Automation Account and autmatically set it on the Runbooks canvas
-
-    Get-BearerToken -ClientID "8c193358-c9c9-4255e-acd8c28f4a" -TenantName "Domain.com" -UseDelegatedPermissions
-    This example will retrieve a bearer token from the ClientID using delegated permissions and the configured app registration re-direct URIs for auth
 
     Get-BearerToken -UseMSI
     This example will retrieve a bearer token from the MSI being used in the Azure Automation and Runbook
@@ -34,31 +31,25 @@ function Get-BearerToken {
         [ValidateNotNullOrEmpty()]
         [string]$TenantName,
         [Parameter(Mandatory = $false, Position = 6)]
-        [switch]$LocalTest,
+        [string]$Secret,
         [Parameter(Mandatory = $false, Position = 4, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
         [string]$RunbookUsername,
-        [Parameter(Mandatory = $false, Position = 3)]
-        [switch]$UseDelegatedPermissions,
         [Parameter(Mandatory = $false, Position = 5)]
         [switch]$UseMSI
     )
 
-    if (-not $PSCmdlet.MyInvocation.BoundParameters["LocalTest"] -and
+    if (-not $PSCmdlet.MyInvocation.BoundParameters["Secret"] -and
        (-not $PSCmdlet.MyInvocation.BoundParameters["RunbookUsername"] -and
-       (-not $PSCmdlet.MyInvocation.BoundParameters["UseDelegatedPermissions"] -and
-       (-not $PSCmdlet.MyInvocation.BoundParameters["UseMSI"])))) {
-        throw "You must include at least one of the following parameters: -LocalTest, -RunbookUserName, -UseDelegatedPermissions, -UseMSI"
+       (-not $PSCmdlet.MyInvocation.BoundParameters["UseMSI"]))) {
+        throw "You must include at least one of the following parameters: -Secret, -RunbookUserName, -UseMSI"
     }
 
     switch ($PSCmdlet.MyInvocation.BoundParameters.Keys) {
-        "LocalTest" {
-            if (-not $PSCmdlet.MyInvocation.BoundParameters.Keys.Equals("RunbookUserName") -and 
-               (-not $PSCmdlet.MyInvocation.BoundParameters.Keys.Equals("UseDelegatedPermissions"))) {
-                [string]$Secret = Read-Host "Enter Secret from ClientID"
+        "Secret" {
+            if (-not $PSCmdlet.MyInvocation.BoundParameters.Keys.Equals("RunbookUserName")) {
                 if (-not [string]::IsNullOrEmpty($Secret)) {
                     if ($Secret.Length -gt "30") {
-                        #[System.Security.SecureString](ConvertTo-SecureString -String $Secret -Force -AsPlainText)
-                       
+
                         [hashtable]$Body = [System.Collections.Specialized.OrderedDictionary]::new()
                         [hashtable]$TokenSplat = [System.Collections.Specialized.OrderedDictionary]::new()
 
@@ -88,8 +79,7 @@ function Get-BearerToken {
             }
         }
         "RunbookUsername" {
-            if (-not $PSCmdlet.MyInvocation.BoundParameters.Keys.Equals("LocalTest") -and
-               (-not $PSCmdlet.MyInvocation.BoundParameters.Keys.Equals("UseDelegatedPermissions"))) {
+            if (-not $PSCmdlet.MyInvocation.BoundParameters.Keys.Equals("Secret")) {
 
                 if (-not (Get-Command -Name 'Get-AutomationPSCredential' -ErrorAction SilentlyContinue)) {
                     throw "Please ensure this command is being used in an Azure Runbook"
@@ -114,39 +104,53 @@ function Get-BearerToken {
                 }
             }
         }
-        "UseDelegatedPermissions" {
-            if (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("LocalTest") -and 
-               (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("RunbookUsername"))) {
-                if (-not (Get-Command Get-MsalToken)) {
-                    throw "Ensure you have MSAL.PS Installed. Graph may of not fully installed and loaded the required modules"
-                }
-                [hashtable]$DelegatedAuthSplat = [System.Collections.Specialized.OrderedDictionary]::new()
-                [hashtable]$DelegatedAuthSplat.Add("ClientId", [string]$ClientID)
-                [hashtable]$DelegatedAuthSplat.Add("TenantId", [string]$TenantName)
-                [hashtable]$DelegatedAuthSplat.Add("Interactive", [boolean]$True)
-                try {
-                    [string](Get-MsalToken @DelegatedAuthSplat).AccessToken
-                }
-                catch [System.Exception] {
-                    throw $global:Error[0].Exception.Message
-                }
-            }
-        }
         "UseMSI" {
             if ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("ClientID") -or
                ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("TenantName") -or
-               ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("LocalTest") -or
-               ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("RunbookUsername") -or
-               ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("UseDelegatedPermissions")))))) {
+               ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("Secret") -or
+               ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("RunbookUsername"))))) {
                 throw 'You must only use the -UseMSI Parameter while using an MSI in a Runbook'
 
             }
-            else{
+            else {
                 try {
+                    function Get-GraphAccessToken {
+                        [CmdletBinding()]
+                        param (
+                            [Parameter(Mandatory = $false)]
+                            [ValidateNotNullOrEmpty()]
+                            [switch]$UseMSI
+                        )
+                        
+                        if ($UseMSI) {
+                            try {
+                                [void](Connect-AzAccount -Identity)
+                                $ResourceURL = "https://graph.microsoft.com"
+                                $global:BearerToken = [string](Get-AzAccessToken -ResourceUrl $ResourceURL).Token 
+                                return $global:BearerToken      
+                            }
+                            catch {
+                                Write-Warning $Error.Exception[0]
+                            }
+                        }
+                        else {
+                            try {
+                                if (Get-Command -Name Connect-AzAccount) {
+                                    [void](Connect-AzAccount)
+                                    $ResourceURL = "https://graph.microsoft.com"
+                                    $global:BearerToken = [string](Get-AzAccessToken -ResourceUrl $ResourceURL).Token
+                                    return $global:BearerToken    
+                                }
+                            }
+                            catch {
+                                Write-Warning $Error.Exception[0]
+                            }
+                        }
+                    }
                     [string](Get-GraphAccessToken -UseMSI) #This cmlet runs from Azure Secrets Module 
                 }
                 catch [System.Exception] {
-                    return $global:Error[0].Exception.Message
+                    throw $global:Error[0].Exception.Message
                 }
             }
         }

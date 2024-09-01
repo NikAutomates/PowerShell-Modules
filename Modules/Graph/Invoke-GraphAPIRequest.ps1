@@ -9,21 +9,12 @@
     Date: 4/12/2024
     Version: V1.1.0
 
-    If using -UseDelegatedPermissions Param, configure the following URLs as re-direct URIs on your app reg:
-
-    https://login.microsoftonline.com/common/oauth2/nativeclient
-    https://login.live.com/oauth20_desktop.srf
-    msalb4991893-6d74-4d48-a870-b6af8858ccb0://auth
-
-    Type: Mobile and desktop applications
-    Public flows: ON
-
-    Ensure to Assign the proper delegated graph API permissions on the app reg
-
     If using -UseMSI Param, ensure the script is running in an Azure Automation Account within a PowerShell Runbook 
     Change Log:
     4/16/2024 - Added additional param validation and -BearerToken as optional positional param
-    4/19/2024 - Added -UseDelegatedPermissions as optional positional param
+    8/26/2024 - Removed MSAL - Deprecation is soon, delegated auth parameter removed.
+    8/26/2024 - Added String Null check after pagination, as some API endpoints and entities do not have 'value' in the object as a property
+    8/26/2024 - Include optional choice of JSON Payload during POST, Since some endpoints do not require a payload
 
 .LINK
 https://www.powershellgallery.com/packages/Graph/
@@ -32,7 +23,7 @@ https://www.powershellgallery.com/packages/Graph/
     Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -RunbookUserName "ClientSecret-Graph"
     This example will retrieve a bearer token from the credential in the Automation Account and autmatically set it on the Runbooks canvas, then perform a REST API Call
  
-    Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255-bc0e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -LocalTest
+    Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255-bc0e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -Secret 'Mysecret'
     This example will retrieve a bearer token from the clientSecret entered into the prompt, then perform a REST API Call
  
     Invoke-GraphAPIRequest -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -AccessToken "ZiVm9waEZQWjVsd1lxMHB3V2wtdmxsUXBYSkpTTkkiLCJhbGciOiJSUzI1NiIsIng1dCI6In"
@@ -41,20 +32,17 @@ https://www.powershellgallery.com/packages/Graph/
     Invoke-GraphAPIRequest -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -UseMSI 
     This example will allow you to retrieve a bearer token using an MSI and perform a REST API Call
 
-    Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255-bc0e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -UseDelegatedPermissions
-    This example will retrieve a bearer token from the ClientID using delegated permissions and the configured app registration re-direct URIs for auth, followed by a REST API Call
-
     Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method POST -JsonBody $body -RunbookUserName "ClientSecret-Graph"
     This example will retrieve a bearer token from the credential in the Automation Account and autmatically set it on the Runbooks canvas, then perform a POST REST API Call
  
-    Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255-bc0e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method POST -JsonBody $body -LocalTest
+    Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255-bc0e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method POST -JsonBody $body -Secret 'Mysecret'
     This example will retrieve a bearer token from the clientSecret entered into the prompt, then perform a POST REST API Call
  
     Invoke-GraphAPIRequest -URL "https://graph.microsoft.com/v1.0/devices" -Method POST -JsonBody $body -AccessToken "ZiVm9waEZQWjVsd1lxMHB3V2wtdmxsUXBYSkpTTkkiLCJhbGciOiJSUzI1NiIsIng1dCI6In"
     This example will allow you to pass in your own Bearer Token and perform a POST REST API call
 
-    Invoke-GraphAPIRequest -ClientID "8c193358-c9c9-4255-bc0e-acd8c28f4a" -TenantName "MyDomain.com" -URL "https://graph.microsoft.com/v1.0/devices" -Method POST -JsonBody $body -UseDelegatedPermissions
-    This example will retrieve a bearer token from the ClientID using delegated permissions and the configured app registration re-direct URIs for auth, followed by a POST REST API Call
+    Invoke-GraphAPIRequest -URL "https://graph.microsoft.com/v1.0/devices" -Method POST -NoJsonBody -AccessToken "ZiVm9waEZQWjVsd1lxMHB3V2wtdmxsUXBYSkpTTkkiLCJhbGciOiJSUzI1NiIsIng1dCI6In"
+    This example will allow you to pass in your own Bearer Token and perform a POST REST API call with no JSON Body when not required
 
     Invoke-GraphAPIRequest -URL "https://graph.microsoft.com/v1.0/devices" -Method GET -UseMSI
     This example will allow you to retrieve a bearer token using an MSI and perform a POST REST API Call
@@ -101,14 +89,13 @@ function Invoke-GraphAPIRequest {
         [ValidateSet("GET", "DELETE", "POST", "PATCH", "PUT")][ValidateNotNullOrEmpty()]
         [string]$Method,
         [Parameter(Mandatory = $false, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
-        <#[ArgumentCompletions('$JsonBody', '(Get-Content -Path JsonFile.json)')]#>
         [string]$JsonBody,
+        [Parameter(Mandatory = $false, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
+        [switch]$NoJsonBody,
         [Parameter(Mandatory = $false)]
-        [switch]$LocalTest,
+        [string]$Secret,
         [Parameter(Mandatory = $false, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
         [string]$RunbookUsername,
-        [Parameter(Mandatory = $false, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
-        [switch]$UseDelegatedPermissions,
         [Parameter(Mandatory = $false, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
         [switch]$UseMSI,
         [Parameter(Mandatory = $false, ValueFromPipeline = [boolean]$true, ValueFromPipelineByPropertyName = [boolean]$true)]
@@ -130,23 +117,21 @@ function Invoke-GraphAPIRequest {
         #Param validation to ensure the correct switch or string input object params are being passed into the function 
         if (-not $PSCmdlet.MyInvocation.BoundParameters["AccessToken"] -and
            (-not $PSCmdlet.MyInvocation.BoundParameters["RunbookUsername"] -and
-           (-not $PSCmdlet.MyInvocation.BoundParameters["LocalTest"] -and
-           (-not $PSCmdlet.MyInvocation.BoundParameters["UseDelegatedPermissions"] -and
-           (-not $PSCmdlet.MyInvocation.BoundParameters["UseMSI"]))))) {
+           (-not $PSCmdlet.MyInvocation.BoundParameters["Secret"] -and
+           (-not $PSCmdlet.MyInvocation.BoundParameters["UseMSI"])))) {
             
-            throw "You must include at least one of the following parameters: -LocalTest, -RunbookUserName, -AccessToken, -UseDelegatedPermissions, -UseMSI"
+            throw "You must include at least one of the following parameters: -Secret, -RunbookUserName, -AccessToken, -UseMSI"
         }
         
         #Switch statement to extract the input parameters being used, follow by additional param validation before extracting bearer token
         switch ($PSCmdlet.MyInvocation.BoundParameters.Keys) {
 
             "UseMSI" {
-                if ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("LocalTest") -or
+                if ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("Secret") -or
                    ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("RunbookUsername") -or
-                   ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("UseDelegatedPermissions") -or 
                    ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("AccessToken") -or
                    ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("ClientID") -or
-                   ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("TenantName"))))))) {
+                   ($PSCmdlet.MyInvocation.BoundParameters.Keys.Contains("TenantName")))))) {
                     throw "You must ONLY use the -UseMSI, -GraphURL, -Method Parameters when using the -UseMSI Parameter"
                 }
                 else {
@@ -154,29 +139,27 @@ function Invoke-GraphAPIRequest {
                 }
             }
 
-            "LocalTest" {
+            "Secret" {
                 if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("RunbookUsername") -or
-                   ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("AccessToken") -or
-                   ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("UseDelegatedPermissions")))) {
+                   ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("AccessToken"))) {
          
-                    throw "You must not include the -AccessToken, -RunbookUsername, -UseDelegatedPermissions Parameters when using the -LocalTest Parameter"
+                    throw "You must not include the -AccessToken, -RunbookUsername, Parameters when using the -Secret Parameter"
                 }
                 elseif ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("ClientID") -and
                     $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("TenantName")) {
          
-                    $BearerToken = Get-BearerToken -ClientID $ClientID -TenantName $TenantName -LocalTest
+                    $BearerToken = Get-BearerToken -ClientID $ClientID -TenantName $TenantName -Secret $Secret
                 }
                 else {
-                    throw "You must include the -ClientID and -TenantName Parameters when using the -LocalTest Parameter"
+                    throw "You must include the -ClientID and -TenantName Parameters when using the -Secret Parameter"
                 }
             }
            
             "RunbookUsername" {
-                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("LocalTest") -or
-                ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("AccessToken") -or
-                ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("UseDelegatedPermissions")))) {
+                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("Secret") -or
+                   ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("AccessToken"))) {
          
-                    throw "You must not include the -AccessToken, -LocalTest, -UseDelegatedPermissions Parameters when using the -RunbookUsername Parameter"
+                    throw "You must not include the -AccessToken Or -Secret Parameters when using the -RunbookUsername Parameter"
                 }
                 elseif ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("ClientID") -and
                     $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("TenantName")) {
@@ -189,33 +172,15 @@ function Invoke-GraphAPIRequest {
                
             }
             "AccessToken" { 
-                if (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("LocalTest") -and 
+                if (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("Secret") -and 
                    (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("RunbookUserName") -and
                    (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("ClientID") -and 
-                   (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("TenantName") -and 
-                   (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("TenantName")))))) {
+                   (-not $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("TenantName"))))) {
                     
                     $BearerToken = $AccessToken
                 }
                 else {
-                    throw "You must not include the -LocalTest or -RunbookUserName or -ClientID or -UseDelegatedPermissions Parameters when using the -AccessToken Parameter"
-                }
-            }
-            "UseDelegatedPermissions" {
-
-                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("RunbookUsername") -or
-                ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("AccessToken") -or
-                ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("LocalTest")))) {
-         
-                    throw "You must not include the -AccessToken, -RunbookUsername, -LocalTest Parameters when using the -UseDelegatedPermissions Parameter"
-                }
-                elseif ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("ClientID") -and
-                    $PSCmdlet.MyInvocation.BoundParameters.ContainsKey("TenantName")) {
-         
-                    $BearerToken = Get-BearerToken -ClientID $ClientID -TenantName $TenantName -UseDelegatedPermissions
-                }
-                else {
-                    throw "You must include the -ClientID and -TenantName Parameters when using the -UseDelegatedPermissions Parameter"
+                    throw "You must not include the -Secret or -RunbookUserName or -ClientID Parameters when using the -AccessToken Parameter"
                 }
             }
         }
@@ -239,9 +204,7 @@ function Invoke-GraphAPIRequest {
                     Invoke-RestMethod @SplatArgs 
                 }
                 catch [System.Exception] {
-                    return [PSCustomObject]@{
-                        CommandException = $($Global:Error[0])
-                    }
+                    throw $global:Error[0].Exception.Message
                 }
             }
             "GET" {
@@ -263,18 +226,23 @@ function Invoke-GraphAPIRequest {
                         $SplatArgs["Uri"] = $GraphResponse."@odata.nextLink"
                     } while ($SplatArgs["Uri"])
                     #Can't do a return statement here, or the end block will NOT return
-                    $global:Results
-              
+                    $Results
+
+                    #if object doesn't have property value, check if null and add URL back to URI Key
+                    if ([string]::IsNullOrEmpty($Results)) {
+                        $SplatArgs["Uri"] = $GraphURL
+                        Invoke-RestMethod @SplatArgs
+                    }
                 }
                 catch [System.Exception] {
-                    return [PSCustomObject]@{
-                        CommandException = $($Global:Error[0])
-                    }
+                    throw $global:Error[0].Exception.Message
                 }
             }
             "POST" {
-                if (-not ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("JsonBody"))) {
-                    throw "You must include the -JSON body parameter when using the POST Method in the -Method Parameter"
+                if (-not ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("JsonBody") -or
+                   ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("NoJsonBody")))) {
+  
+                    throw "You must include the -Jsonbody or -NoJsonBody parameter when using the POST Method in the -Method Parameter"
                 }
 
                 [hashtable]$SplatArgs = [System.Collections.Specialized.OrderedDictionary]::new()
@@ -287,13 +255,15 @@ function Invoke-GraphAPIRequest {
                 [hashtable]$SplatArgs.Add('ContentType', [string]'application/json')
                 [hashtable]$SplatArgs.Add('Body', $JsonBody)
 
+                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey("NoJsonBody")) {
+                    $SplatArgs.Remove('Body')
+                    $SplatArgs.Remove('ContentType')
+                }
                 try {
                     Invoke-RestMethod @SplatArgs 
                 }
                 catch [System.Exception] {
-                    return [PSCustomObject]@{
-                        CommandException = $($Global:Error[0])
-                    }
+                    throw $Global:Error[0].Exception.Message
                 }  
             }
             "PUT" {
@@ -315,9 +285,7 @@ function Invoke-GraphAPIRequest {
                     Invoke-RestMethod @SplatArgs 
                 }
                 catch [System.Exception] {
-                    return [PSCustomObject]@{
-                        CommandException = $($Global:Error[0])
-                    }
+                    throw $global:Error[0].Exception.Message
                 }
             }
             "PATCH" {
@@ -339,9 +307,7 @@ function Invoke-GraphAPIRequest {
                     Invoke-RestMethod @SplatArgs 
                 }
                 catch [System.Exception] {
-                    return [PSCustomObject]@{
-                        CommandException = $($Global:Error[0])
-                    }
+                    throw $Global:Error.Exception.Message
                 }
             } 
         }
@@ -351,4 +317,5 @@ function Invoke-GraphAPIRequest {
         $ChildHash.Clear()
         $SplatArgs.Clear()
     }
-} 
+}
+
